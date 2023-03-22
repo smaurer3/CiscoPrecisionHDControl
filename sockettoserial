@@ -1,0 +1,24 @@
+#!/usr/bin/python
+import serial
+import socket
+
+HOST = ''  # Listen on all available network interfaces
+PORT = 8888  # Use port 8888 for the UDP server
+
+ser = serial.Serial('/dev/ttyUSB0', 9600)  # Replace with the appropriate serial port and baud rate for your use case
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind((HOST, PORT))
+
+while True:
+    data, addr = sock.recvfrom(1024)
+    print('Received:', data, 'from', addr)
+    # Clear input buffer
+    ser.reset_input_buffer()
+    # Clear output buffer
+    ser.reset_output_buffer()
+    ser.write(data)
+    response = ser.read_until(b'\xff')
+    if response:
+        print('Sent:', response)
+        sock.sendto(response, addr)

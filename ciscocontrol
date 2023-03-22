@@ -1,0 +1,235 @@
+#!/usr/bin/python
+import serial
+import time
+
+import asyncio
+import json
+import websockets
+import json
+
+
+visca_ptz_commands = {
+    # Pan/Tilt/Focus commands
+    "pan_tilt_up": "81 01 06 01 %s %s 03 01 FF",
+    "pan_tilt_down": "81 01 06 01 %s %s 03 02 FF",
+    "pan_tilt_left": "81 01 06 01 %s %s 01 03 FF",
+    "pan_tilt_right": "81 01 06 01 %s %s 02 03 FF",
+    "pan_tilt_up_left": "81 01 06 01 %s %s 03 FF",
+    "pan_tilt_up_right": "81 01 06 01 %s %s 02 FF",
+    "pan_tilt_down_left": "81 01 06 01 %s %s 01 FF",
+    "pan_tilt_down_right": "81 01 06 01 %s %s 04 FF",
+    "pan_tilt_direct": "81 01 06 02 %s %s %s %s %s %s %s %s %s FF",
+    "pan_tilt_stop": "81 01 06 01 %s %s 03 03 FF",
+    "zoom_tele": "81 01 04 07 2%s FF",
+    "zoom_wide": "81 01 04 07 3%s FF",
+    "zoom_direct": "81 01 04 47 %s %s %s %s %s FF",
+    "zoom_stop" : "81 01 04 07 00 ff",
+    "focus_near": "81 01 04 08 %s FF",
+    "focus_far": "81 01 04 08 %s FF",
+    
+    # PTZ inquiries
+    "pan_tilt_position_inquiry": "81 09 06 12 FF",
+    "zoom_position_inquiry": "81 09 04 47 FF",
+    "focus_position_inquiry": "81 09 04 48 ff",
+    "pt_direct" : "81 01 06 02 05 05 %s ff",
+    "ptzf_direct" :"81 01 06 20 %s ff"
+}
+
+pan_speed = 2
+tilt_speed = 2
+zoom_speed = "b"
+
+class MyWebSocketServer:
+    def __init__(self, host='192.168.1.213', port=8765):
+        self.host = host
+        self.port = port
+        self.clients = set()
+
+    async def broadcast(self, message):
+        if self.clients:
+            await asyncio.wait([client.send(message) for client in self.clients])
+
+    async def process_command(self, command):
+        # Replace this with your own command processing logic
+        if command['action'] == 'ptz':
+            response = vc.send_visca_command(
+                visca_ptz_commands[command['message']] % (
+                    str(pan_speed).zfill(2), 
+                    str(tilt_speed).zfill(2))
+                    )
+            print(f"Response:{response}")
+            await self.broadcast(response)
+            
+        if command['action'] == 'inq':
+            response = vc.send_visca_command(
+                visca_ptz_commands[command['message']]
+                )
+            print(f"Response:{response}")
+            await self.broadcast(response)
+            
+        if command['action'] == 'set_preset':
+            vc.set_preset(command['message'])
+        
+        if command['action'] == 'recall_preset':
+            vc.recall_preset(command['message'])
+        
+        if command['action'] == 'lens':
+            try:
+                visca_command = visca_ptz_commands[command['message']] % (
+                    zoom_speed
+                    )
+            except TypeError:
+                visca_command = visca_ptz_commands[command['message']]
+            vc.send_visca_command(visca_command)
+            
+        elif command['action'] == 'add':
+            result = command['x'] + command['y']
+            print(f"{command['x']} + {command['y']} = {result}")
+
+    async def handle_client(self, websocket, path):
+        self.clients.add(websocket)
+        print("client connected")
+        try:
+            async for message in websocket:
+                command = json.loads(message)
+                await self.process_command(command)
+        finally:
+            self.clients.remove(websocket)
+
+    async def start(self):
+        async with websockets.serve(self.handle_client, self.host, self.port):
+            print(f"WebSocket server listening on {self.host}:{self.port}")
+            await asyncio.Future()  # Run forever
+
+
+class ViscaControl:
+    def __init__(self, serial_port='/dev/ttyUSB0', baud_rate=9600, address="01 01"):
+        self.serial_port = serial_port
+        self.baud_rate = baud_rate
+        self.address = bytearray.fromhex(address)
+        self.ser = None
+        self.open_connection()
+        self.presets = self.load_preset() 
+    
+    def open_connection(self):
+        self.ser = serial.Serial(self.serial_port, self.baud_rate)
+        time.sleep(0.1)
+        
+    def close_connection(self):
+        if self.ser is not None:
+            self.ser.close()
+            self.ser = None
+            
+    def send_visca_command(self, command):
+        if self.ser is None:
+            raise Exception("Serial port not open.")
+        command_bytes = bytearray.fromhex(command)
+        command = self.address + command_bytes
+        print(command)
+        self.ser.write(command_bytes)
+        time.sleep(0.1)
+        
+        response = self.ser.read_until(b'\xff')
+        return response.hex()
+    
+    def set_preset(self, index):
+        
+        response = ""
+        ptzf = ""
+        hex_string = ""
+        while len(response) < 10:
+            command = visca_ptz_commands["pan_tilt_position_inquiry"]
+            if self.ser is None:
+                raise Exception("Serial port not open.")
+            command_bytes = bytearray.fromhex(command)
+            command = self.address + command_bytes
+            print(command)
+            self.ser.write(command_bytes)
+            time.sleep(0.1)
+            response = self.ser.read_until(b'\xff')
+            
+        hex_string = (''.join('{:02x}'.format(b) for b in response))
+        sliced_hex_string = hex_string[4:-2]
+        print(f"SHS1: {sliced_hex_string}")
+        ptzf = sliced_hex_string
+        response = ""
+        while len(response) < 6 or len(response) > 8:
+            command = visca_ptz_commands["zoom_position_inquiry"]
+            if self.ser is None:
+                raise Exception("Serial port not open.")
+            command_bytes = bytearray.fromhex(command)
+            command = self.address + command_bytes
+            print(command)
+            self.ser.write(command_bytes)
+            time.sleep(0.1)
+            
+            response = self.ser.read_until(b'\xff')
+        hex_string = ''.join('{:02x}'.format(b) for b in response)
+        sliced_hex_string = hex_string[4:-2]
+        print(f"SHS2: {sliced_hex_string}")
+        ptzf += f" {sliced_hex_string}"
+        response = ""
+        while len(response) < 6 or len(response) > 8:
+            command = visca_ptz_commands["focus_position_inquiry"]
+            if self.ser is None:
+                raise Exception("Serial port not open.")
+            command_bytes = bytearray.fromhex(command)
+            command = self.address + command_bytes
+            print(command)
+            self.ser.write(command_bytes)
+            time.sleep(0.1)
+            
+            response = self.ser.read_until(b'\xff')
+        hex_string = ''.join('{:02x}'.format(b) for b in response)
+        sliced_hex_string = hex_string[4:-2]
+        print(f"SHS3: {sliced_hex_string}")
+        ptzf += f" {sliced_hex_string}"
+        
+        print(f"PTZF POS: {ptzf}")
+        # Slice the string to remove the first 2 bytes and last byte
+        
+        self.save_preset(index, ptzf)
+        
+    def recall_preset(self, index):
+        print(self.presets)
+        command = visca_ptz_commands["ptzf_direct"] % self.presets[str(index)]
+        if self.ser is None:
+            raise Exception("Serial port not open.")
+        command_bytes = bytearray.fromhex(command)
+        command = self.address + command_bytes
+        print(f"Sending: {command}")
+        self.ser.write(command_bytes)
+        time.sleep(0.1)
+        
+        response = self.ser.read_until(b'\xff')
+        return response
+    
+    def save_preset(self, key, value, file_path = "presets.json"):
+        try:
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            data = {}
+
+        data[str(key)] = value
+        self.presets = data
+        print (data)
+        with open(file_path, 'w') as f:
+            json.dump(data, f)
+    
+    def load_preset(self, file_path = "presets.json"):
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+        print (data)
+        return data    
+
+vc = ViscaControl()      
+
+def main():
+    vc.recall_preset("HOME")
+    server = MyWebSocketServer()
+    asyncio.run(server.start())
+    
+
+if __name__ == '__main__':
+    main()
