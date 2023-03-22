@@ -60,20 +60,19 @@ class MyWebSocketServer:
             print(f"Response:{response}")
             await self.broadcast(response)
             
-        if command['action'] == 'inq':
+        elif command['action'] == 'inq':
             response = vc.send_visca_command(
                 visca_ptz_commands[command['message']]
                 )
             print(f"Response:{response}")
             await self.broadcast(response)
             
-        if command['action'] == 'set_preset':
+        elif command['action'] == 'set_preset':
             vc.set_preset(command['message'])
         
-        if command['action'] == 'recall_preset':
+        elif command['action'] == 'recall_preset':
             vc.recall_preset(command['message'])
-        
-        if command['action'] == 'lens':
+        elif command['action'] == 'lens':
             try:
                 visca_command = visca_ptz_commands[command['message']] % (
                     zoom_speed
@@ -130,79 +129,31 @@ class ViscaControl:
         time.sleep(0.1)
         
         response = self.ser.read_until(b'\xff')
-        return response.hex()
+        return response
     
-    def set_preset(self, index):
-        
+    def set_preset(self, index):  
         response = ""
-        ptzf = ""
-        hex_string = ""
         while len(response) < 10:
-            command = visca_ptz_commands["pan_tilt_position_inquiry"]
-            if self.ser is None:
-                raise Exception("Serial port not open.")
-            command_bytes = bytearray.fromhex(command)
-            command = self.address + command_bytes
-            print(command)
-            self.ser.write(command_bytes)
-            time.sleep(0.1)
-            response = self.ser.read_until(b'\xff')
-            
+            response = self.send_visca_command(visca_ptz_commands["pan_tilt_position_inquiry"])
         hex_string = (''.join('{:02x}'.format(b) for b in response))
-        sliced_hex_string = hex_string[4:-2]
-        print(f"SHS1: {sliced_hex_string}")
-        ptzf = sliced_hex_string
-        response = ""
+        pt_pos = hex_string[4:-2]
+
         while len(response) < 6 or len(response) > 8:
-            command = visca_ptz_commands["zoom_position_inquiry"]
-            if self.ser is None:
-                raise Exception("Serial port not open.")
-            command_bytes = bytearray.fromhex(command)
-            command = self.address + command_bytes
-            print(command)
-            self.ser.write(command_bytes)
-            time.sleep(0.1)
-            
-            response = self.ser.read_until(b'\xff')
+            response = self.send_visca_command(visca_ptz_commands["zoom_position_inquiry"]) 
         hex_string = ''.join('{:02x}'.format(b) for b in response)
-        sliced_hex_string = hex_string[4:-2]
-        print(f"SHS2: {sliced_hex_string}")
-        ptzf += f" {sliced_hex_string}"
-        response = ""
+        zoom_pos = hex_string[4:-2]
+
         while len(response) < 6 or len(response) > 8:
-            command = visca_ptz_commands["focus_position_inquiry"]
-            if self.ser is None:
-                raise Exception("Serial port not open.")
-            command_bytes = bytearray.fromhex(command)
-            command = self.address + command_bytes
-            print(command)
-            self.ser.write(command_bytes)
-            time.sleep(0.1)
-            
-            response = self.ser.read_until(b'\xff')
+            response = self.send_visca_command(visca_ptz_commands["focus_position_inquiry"])
         hex_string = ''.join('{:02x}'.format(b) for b in response)
-        sliced_hex_string = hex_string[4:-2]
-        print(f"SHS3: {sliced_hex_string}")
-        ptzf += f" {sliced_hex_string}"
+        focus_pos = hex_string[4:-2]
         
-        print(f"PTZF POS: {ptzf}")
-        # Slice the string to remove the first 2 bytes and last byte
-        
-        self.save_preset(index, ptzf)
+        self.save_preset(index, f'{pt_pos} {zoom_pos} {focus_pos}')
         
     def recall_preset(self, index):
         print(self.presets)
         command = visca_ptz_commands["ptzf_direct"] % self.presets[str(index)]
-        if self.ser is None:
-            raise Exception("Serial port not open.")
-        command_bytes = bytearray.fromhex(command)
-        command = self.address + command_bytes
-        print(f"Sending: {command}")
-        self.ser.write(command_bytes)
-        time.sleep(0.1)
-        
-        response = self.ser.read_until(b'\xff')
-        return response
+        return self.send_visca_command(command)
     
     def save_preset(self, key, value, file_path = "presets.json"):
         try:
@@ -210,17 +161,15 @@ class ViscaControl:
                 data = json.load(f)
         except FileNotFoundError:
             data = {}
-
         data[str(key)] = value
         self.presets = data
-        print (data)
+      
         with open(file_path, 'w') as f:
             json.dump(data, f)
     
     def load_preset(self, file_path = "presets.json"):
         with open(file_path, 'r') as f:
             data = json.load(f)
-        print (data)
         return data    
 
 vc = ViscaControl()      
