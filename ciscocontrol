@@ -52,12 +52,12 @@ class MyWebSocketServer:
     async def process_command(self, command):
         # Replace this with your own command processing logic
         if command['action'] == 'ptz':
-            response = vc.send_visca_command(
+            response, response_ext = vc.send_visca_command(
                 visca_ptz_commands[command['message']] % (
                     str(pan_speed).zfill(2), 
                     str(tilt_speed).zfill(2))
                     )
-            print(f"Response:{response}")
+            print(f"Response:{response} - {response_ext}")
             await self.broadcast(response)
             
         elif command['action'] == 'inq':
@@ -72,6 +72,7 @@ class MyWebSocketServer:
         
         elif command['action'] == 'recall_preset':
             vc.recall_preset(command['message'])
+        
         elif command['action'] == 'lens':
             try:
                 visca_command = visca_ptz_commands[command['message']] % (
@@ -124,34 +125,32 @@ class ViscaControl:
             raise Exception("Serial port not open.")
         command_bytes = bytearray.fromhex(command)
         command = self.address + command_bytes
-        print(command)
+        print(f"Sending: {command}")
+        
+        self.ser.flush()
         self.ser.write(command_bytes)
         time.sleep(0.1)
-        
         response = self.ser.read_until(b'\xff')
-        return response
+        response_ext = self.ser.read_all()
+        return response, response_ext
     
     def set_preset(self, index):  
-        response = ""
-        while len(response) < 10:
-            response = self.send_visca_command(visca_ptz_commands["pan_tilt_position_inquiry"])
+   
+        response, ext = self.send_visca_command(visca_ptz_commands["pan_tilt_position_inquiry"])
         hex_string = (''.join('{:02x}'.format(b) for b in response))
         pt_pos = hex_string[4:-2]
 
-        while len(response) < 6 or len(response) > 8:
-            response = self.send_visca_command(visca_ptz_commands["zoom_position_inquiry"]) 
+        response, ext = self.send_visca_command(visca_ptz_commands["zoom_position_inquiry"])
         hex_string = ''.join('{:02x}'.format(b) for b in response)
         zoom_pos = hex_string[4:-2]
-
-        while len(response) < 6 or len(response) > 8:
-            response = self.send_visca_command(visca_ptz_commands["focus_position_inquiry"])
+        
+        response, ext = self.send_visca_command(visca_ptz_commands["focus_position_inquiry"])
         hex_string = ''.join('{:02x}'.format(b) for b in response)
         focus_pos = hex_string[4:-2]
         
         self.save_preset(index, f'{pt_pos} {zoom_pos} {focus_pos}')
         
     def recall_preset(self, index):
-        print(self.presets)
         command = visca_ptz_commands["ptzf_direct"] % self.presets[str(index)]
         return self.send_visca_command(command)
     
