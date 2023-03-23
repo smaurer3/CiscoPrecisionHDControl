@@ -14,10 +14,10 @@ visca_ptz_commands = {
     "pan_tilt_down": "81 01 06 01 %s %s 03 02 FF",
     "pan_tilt_left": "81 01 06 01 %s %s 01 03 FF",
     "pan_tilt_right": "81 01 06 01 %s %s 02 03 FF",
-    "pan_tilt_up_left": "81 01 06 01 %s %s 03 FF",
-    "pan_tilt_up_right": "81 01 06 01 %s %s 02 FF",
-    "pan_tilt_down_left": "81 01 06 01 %s %s 01 FF",
-    "pan_tilt_down_right": "81 01 06 01 %s %s 04 FF",
+    "pan_tilt_up_left": "81 01 06 01 %s %s 01 01 FF",
+    "pan_tilt_up_right": "81 01 06 01 %s %s 02 01 FF",
+    "pan_tilt_down_left": "81 01 06 01 %s %s 01 02 FF",
+    "pan_tilt_down_right": "81 01 06 01 %s %s 02 02 FF",
     "pan_tilt_direct": "81 01 06 02 %s %s %s %s %s %s %s %s %s FF",
     "pan_tilt_stop": "81 01 06 01 %s %s 03 03 FF",
     "zoom_tele": "81 01 04 07 2%s FF",
@@ -171,9 +171,10 @@ class ViscaControl:
             data = json.load(f)
         return data    
 
-vc = ViscaControl()      
-
+     
+vc = ViscaControl() 
 def main():
+
     vc.recall_preset("HOME")
     server = MyWebSocketServer()
     asyncio.run(server.start())
