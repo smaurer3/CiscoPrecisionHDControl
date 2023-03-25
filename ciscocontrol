@@ -40,7 +40,7 @@ tilt_speed = 2
 zoom_speed = "b"
 
 class MyWebSocketServer:
-    def __init__(self, host='192.168.1.213', port=8765):
+    def __init__(self, host='', port=8765):
         self.host = host
         self.port = port
         self.clients = set()
@@ -82,9 +82,12 @@ class MyWebSocketServer:
                 visca_command = visca_ptz_commands[command['message']]
             vc.send_visca_command(visca_command)
             
-        elif command['action'] == 'add':
-            result = command['x'] + command['y']
-            print(f"{command['x']} + {command['y']} = {result}")
+        elif command['action'] == 'visca':  # Send Raw Visca Command, string representing bytes "81 xx xx xx xx xx ??? FF".
+            response, response_ext = vc.send_visca_command(message)
+            print(f"Response:{response} - {response_ext}")
+            await self.broadcast(response)
+            
+            
 
     async def handle_client(self, websocket, path):
         self.clients.add(websocket)
