@@ -35,8 +35,8 @@ visca_ptz_commands = {
     "ptzf_direct" :"81 01 06 20 %s ff"
 }
 
-pan_speed = 2
-tilt_speed = 2
+pan_speed = 9
+tilt_speed = 9
 zoom_speed = "b"
 
 class MyWebSocketServer:

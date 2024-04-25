@@ -134,6 +134,13 @@
 				<button class="btn btn-success m-1 preset-button " data-direction="4" data-action="recall_preset">Recall Preset 4</button>
 			</div>
 		</div>
+                        <div class="row">
+                        <div class="col-lg-4">
+                                <button class="btn btn-danger  m-1 preset-button " data-direction="HOME" data-action="set_preset">Set HOME</button>
+                                <button class="btn btn-success m-1 preset-button " data-direction="HOME" data-action="recall_preset">Recall HOME</button>
+                        </div>
+                </div>
+
 		
 		</div>
 	</div>
@@ -141,8 +148,8 @@
 
 
 
-	<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
-	<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+	<script src="js/jquery-3.5.1.min.js"></script>
+	<script src="js/bootstrap.min.js"></script>
 	<script>
 
 	var connectionUrl = 'ws://<?= $_SERVER['SERVER_ADDR']; ?>:8765';
