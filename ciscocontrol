@@ -1,187 +1,55 @@
 #!/usr/bin/python
+
+import socket
 import serial
-import time
+import threading
 
-import asyncio
-import json
-import websockets
-import json
+# TCP server settings
+TCP_HOST = '0.0.0.0'  # Listen on all interfaces
+TCP_PORT = 1259
 
+# Serial port settings
+SERIAL_PORT = '/dev/ttyUSB0'  # Example serial port, change as needed
+SERIAL_BAUDRATE = 9600
 
-visca_ptz_commands = {
-    # Pan/Tilt/Focus commands
-    "pan_tilt_up": "81 01 06 01 %s %s 03 01 FF",
-    "pan_tilt_down": "81 01 06 01 %s %s 03 02 FF",
-    "pan_tilt_left": "81 01 06 01 %s %s 01 03 FF",
-    "pan_tilt_right": "81 01 06 01 %s %s 02 03 FF",
-    "pan_tilt_up_left": "81 01 06 01 %s %s 01 01 FF",
-    "pan_tilt_up_right": "81 01 06 01 %s %s 02 01 FF",
-    "pan_tilt_down_left": "81 01 06 01 %s %s 01 02 FF",
-    "pan_tilt_down_right": "81 01 06 01 %s %s 02 02 FF",
-    "pan_tilt_direct": "81 01 06 02 %s %s %s %s %s %s %s %s %s FF",
-    "pan_tilt_stop": "81 01 06 01 %s %s 03 03 FF",
-    "zoom_tele": "81 01 04 07 2%s FF",
-    "zoom_wide": "81 01 04 07 3%s FF",
-    "zoom_direct": "81 01 04 47 %s %s %s %s %s FF",
-    "zoom_stop" : "81 01 04 07 00 ff",
-    "focus_near": "81 01 04 08 %s FF",
-    "focus_far": "81 01 04 08 %s FF",
-    
-    # PTZ inquiries
-    "pan_tilt_position_inquiry": "81 09 06 12 FF",
-    "zoom_position_inquiry": "81 09 04 47 FF",
-    "focus_position_inquiry": "81 09 04 48 ff",
-    "pt_direct" : "81 01 06 02 05 05 %s ff",
-    "ptzf_direct" :"81 01 06 20 %s ff"
-}
-
-pan_speed = 9
-tilt_speed = 9
-zoom_speed = "b"
-
-class MyWebSocketServer:
-    def __init__(self, host='', port=8765):
-        self.host = host
-        self.port = port
-        self.clients = set()
-
-    async def broadcast(self, message):
-        if self.clients:
-            await asyncio.wait([client.send(message) for client in self.clients])
-
-    async def process_command(self, command):
-        # Replace this with your own command processing logic
-        if command['action'] == 'ptz':
-            response, response_ext = vc.send_visca_command(
-                visca_ptz_commands[command['message']] % (
-                    str(pan_speed).zfill(2), 
-                    str(tilt_speed).zfill(2))
-                    )
-            print(f"Response:{response} - {response_ext}")
-            await self.broadcast(response)
-            
-        elif command['action'] == 'inq':
-            response = vc.send_visca_command(
-                visca_ptz_commands[command['message']]
-                )
-            print(f"Response:{response}")
-            await self.broadcast(response)
-            
-        elif command['action'] == 'set_preset':
-            vc.set_preset(command['message'])
-        
-        elif command['action'] == 'recall_preset':
-            vc.recall_preset(command['message'])
-        
-        elif command['action'] == 'lens':
-            try:
-                visca_command = visca_ptz_commands[command['message']] % (
-                    zoom_speed
-                    )
-            except TypeError:
-                visca_command = visca_ptz_commands[command['message']]
-            vc.send_visca_command(visca_command)
-            
-        elif command['action'] == 'visca':  # Send Raw Visca Command, string representing bytes "81 xx xx xx xx xx ??? FF".
-            response, response_ext = vc.send_visca_command(message)
-            print(f"Response:{response} - {response_ext}")
-            await self.broadcast(response)
-            
-            
-
-    async def handle_client(self, websocket, path):
-        self.clients.add(websocket)
-        print("client connected")
+# Function to handle incoming TCP connections
+def handle_client(conn, serial_port):
+    while True:
         try:
-            async for message in websocket:
-                command = json.loads(message)
-                await self.process_command(command)
-        finally:
-            self.clients.remove(websocket)
+            data = conn.recv(1024)
+            if not data:
+                break
+            #print(f'Sending: {data}')
+            serial_port.write(data)
+        except Exception as e:
+            print("Error:", e)
+            break
+    conn.close()
 
-    async def start(self):
-        async with websockets.serve(self.handle_client, self.host, self.port):
-            print(f"WebSocket server listening on {self.host}:{self.port}")
-            await asyncio.Future()  # Run forever
+# Initialize serial port
+try:
+    serial_port = serial.Serial(port=SERIAL_PORT, baudrate=SERIAL_BAUDRATE)
+except serial.SerialException as e:
+    print("Error opening serial port:", e)
+    exit()
 
+# Initialize TCP server socket
+server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server_socket.bind((TCP_HOST, TCP_PORT))
+server_socket.listen(1)
 
-class ViscaControl:
-    def __init__(self, serial_port='/dev/ttyUSB0', baud_rate=9600, address="01 01"):
-        self.serial_port = serial_port
-        self.baud_rate = baud_rate
-        self.address = bytearray.fromhex(address)
-        self.ser = None
-        self.open_connection()
-        self.presets = self.load_preset() 
-    
-    def open_connection(self):
-        self.ser = serial.Serial(self.serial_port, self.baud_rate)
-        time.sleep(0.1)
-        
-    def close_connection(self):
-        if self.ser is not None:
-            self.ser.close()
-            self.ser = None
-            
-    def send_visca_command(self, command):
-        if self.ser is None:
-            raise Exception("Serial port not open.")
-        command_bytes = bytearray.fromhex(command)
-        command = self.address + command_bytes
-        print(f"Sending: {command}")
-        
-        self.ser.flush()
-        self.ser.write(command_bytes)
-        time.sleep(0.1)
-        response = self.ser.read_until(b'\xff')
-        response_ext = self.ser.read_all()
-        return response, response_ext
-    
-    def set_preset(self, index):  
-   
-        response, ext = self.send_visca_command(visca_ptz_commands["pan_tilt_position_inquiry"])
-        hex_string = (''.join('{:02x}'.format(b) for b in response))
-        pt_pos = hex_string[4:-2]
+print("TCP to Serial Converter started. Listening on {}:{}".format(TCP_HOST, TCP_PORT))
 
-        response, ext = self.send_visca_command(visca_ptz_commands["zoom_position_inquiry"])
-        hex_string = ''.join('{:02x}'.format(b) for b in response)
-        zoom_pos = hex_string[4:-2]
-        
-        response, ext = self.send_visca_command(visca_ptz_commands["focus_position_inquiry"])
-        hex_string = ''.join('{:02x}'.format(b) for b in response)
-        focus_pos = hex_string[4:-2]
-        
-        self.save_preset(index, f'{pt_pos} {zoom_pos} {focus_pos}')
-        
-    def recall_preset(self, index):
-        command = visca_ptz_commands["ptzf_direct"] % self.presets[str(index)]
-        return self.send_visca_command(command)
-    
-    def save_preset(self, key, value, file_path = "presets.json"):
-        try:
-            with open(file_path, 'r') as f:
-                data = json.load(f)
-        except FileNotFoundError:
-            data = {}
-        data[str(key)] = value
-        self.presets = data
-      
-        with open(file_path, 'w') as f:
-            json.dump(data, f)
-    
-    def load_preset(self, file_path = "presets.json"):
-        with open(file_path, 'r') as f:
-            data = json.load(f)
-        return data    
-
-     
-vc = ViscaControl() 
-def main():
-
-    vc.recall_preset("HOME")
-    server = MyWebSocketServer()
-    asyncio.run(server.start())
-    
-
-if __name__ == '__main__':
-    main()
+try:
+    while True:
+        conn, addr = server_socket.accept()
+        print("Client connected from:", addr)
+        client_thread = threading.Thread(target=handle_client, args=(conn, serial_port))
+        client_thread.daemon = True
+        client_thread.start()
+except KeyboardInterrupt:
+    print("Keyboard Interrupt. Closing...")
+finally:
+    server_socket.close()
+    serial_port.close()
