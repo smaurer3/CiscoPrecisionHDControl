@@ -1,5 +1,4 @@
 #!/usr/bin/python
-
 import socket
 import serial
 import threading
@@ -19,8 +18,22 @@ def handle_client(conn, serial_port):
             data = conn.recv(1024)
             if not data:
                 break
-            #print(f'Sending: {data}')
             serial_port.write(data)
+            print(f"TX: {data}")
+        except Exception as e:
+            print("Error:", e)
+            break
+    conn.close()
+
+# Function to read data from serial port and send it to TCP client
+def serial_to_tcp(serial_port, conn):
+    while True:
+        try:
+            data = serial_port.read(serial_port.in_waiting)
+            if data:
+                print(f"RX: {data}")
+
+                conn.sendall(data)
         except Exception as e:
             print("Error:", e)
             break
@@ -48,6 +61,10 @@ try:
         client_thread = threading.Thread(target=handle_client, args=(conn, serial_port))
         client_thread.daemon = True
         client_thread.start()
+        
+        serial_thread = threading.Thread(target=serial_to_tcp, args=(serial_port, conn))
+        serial_thread.daemon = True
+        serial_thread.start()
 except KeyboardInterrupt:
     print("Keyboard Interrupt. Closing...")
 finally:
